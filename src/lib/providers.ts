@@ -7,6 +7,7 @@
  */
 
 export const PROVIDER_TYPES = [
+  'xiwang',
   'anthropic',
   'openai',
   'google',
@@ -23,6 +24,7 @@ export const PROVIDER_TYPES = [
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 export const BUILTIN_PROVIDER_TYPES = [
+  'xiwang',
   'anthropic',
   'openai',
   'google',
@@ -123,6 +125,7 @@ import { providerIcons } from '@/assets/providers';
 
 /** All supported provider types with UI metadata */
 export const PROVIDER_TYPE_INFO: ProviderTypeInfo[] = [
+  { id: 'xiwang', name: '犀旺', icon: '🦏', placeholder: 'sk-...', model: 'Multi-Model', requiresApiKey: true, showModelId: true, modelIdPlaceholder: 'qwen3.5-plus', defaultModelId: 'qwen3.5-plus' },
   {
     id: 'anthropic',
     name: 'Anthropic',

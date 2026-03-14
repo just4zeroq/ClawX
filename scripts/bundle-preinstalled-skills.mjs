@@ -47,14 +47,18 @@ async function fetchSparseRepo(repo, ref, paths, checkoutDir) {
   const remote = `https://github.com/${repo}.git`;
   mkdirSync(checkoutDir, { recursive: true });
 
-  await $`git init ${checkoutDir}`;
-  await $`git -C ${checkoutDir} remote add origin ${remote}`;
-  await $`git -C ${checkoutDir} sparse-checkout init --cone`;
-  await $`git -C ${checkoutDir} sparse-checkout set ${paths}`;
-  await $`git -C ${checkoutDir} fetch --depth 1 origin ${ref}`;
-  await $`git -C ${checkoutDir} checkout FETCH_HEAD`;
+  // Convert Windows backslashes to forward slashes for git commands
+  const gitPath = checkoutDir.replace(/\\/g, '/');
 
-  const commit = (await $`git -C ${checkoutDir} rev-parse HEAD`).stdout.trim();
+  await $`git init "${gitPath}"`;
+  await $`git -C "${gitPath}" config core.protectNTFS false`;
+  await $`git -C "${gitPath}" remote add origin ${remote}`;
+  await $`git -C "${gitPath}" sparse-checkout init --cone`;
+  await $`git -C "${gitPath}" sparse-checkout set ${paths}`;
+  await $`git -C "${gitPath}" fetch --depth 1 origin ${ref}`;
+  await $`git -C "${gitPath}" checkout FETCH_HEAD`;
+
+  const commit = (await $`git -C "${gitPath}" rev-parse HEAD`).stdout.trim();
   return commit;
 }
 

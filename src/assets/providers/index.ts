@@ -9,6 +9,7 @@ import minimaxPortal from './minimax.svg';
 import qwenPortal from './qwen.svg';
 import ollama from './ollama.svg';
 import custom from './custom.svg';
+import xiwang from './xiwang.svg';
 
 export const providerIcons: Record<string, string> = {
     anthropic,
@@ -22,5 +23,6 @@ export const providerIcons: Record<string, string> = {
     'minimax-portal-cn': minimaxPortal,
     'qwen-portal': qwenPortal,
     ollama,
+    xiwang,
     custom,
 };

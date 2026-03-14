@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"GIT_DIR: $GIT_DIR\" && echo \"GIT_WORK_TREE: $GIT_WORK_TREE\")",
+      "Bash(git --version)",
+      "Bash(cd /tmp && rm -rf D:/code/github/ClawX/build/.tmp-preinstalled-skills D:/code/github/ClawX/build/preinstalled-skills 2>/dev/null; echo \"Cleanup attempted\")",
+      "Bash(pnpm run:*)",
+      "Bash(rimraf dist:*)",
+      "Bash(ls -lh release/*.exe 2>/dev/null || dir release\\\\*.exe)",
+      "Bash(pnpm install:*)",
+      "Bash(ls -lh release/*.exe 2>/dev/null)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(magick --version 2>/dev/null || convert --version 2>/dev/null | head -3 || echo \"ImageMagick not available\")",
+      "Bash(python3 -c \"from PIL import Image; print\\('Pillow available'\\)\" 2>/dev/null || python -c \"from PIL import Image; print\\('Pillow available'\\)\" 2>/dev/null || echo \"Pillow not available\")",
+      "Bash(python \"resources/icons/make_transparent.py\")",
+      "Bash(ls -lh D:/code/github/ClawX/release/*.exe)"
+    ]
+  }
+}

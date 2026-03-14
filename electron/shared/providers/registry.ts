@@ -7,6 +7,27 @@ import type {
 
 export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
   {
+    id: 'xiwang',
+    name: '犀旺',
+    icon: '🦏',
+    placeholder: 'sk-...',
+    model: 'Xiwang',
+    requiresApiKey: true,
+    category: 'compatible',
+    envVar: 'XIWANG_API_KEY',
+    showModelId: true,
+    modelIdPlaceholder: 'qwen3.5-plus',
+    defaultModelId: 'qwen3.5-plus',
+    supportedAuthModes: ['api_key'],
+    defaultAuthMode: 'api_key',
+    supportsMultipleAccounts: true,
+    providerConfig: {
+      baseUrl: 'https://coding.dashscope.aliyuncs.com/apps/anthropic',
+      api: 'anthropic-messages',
+      apiKeyEnv: 'XIWANG_API_KEY',
+    },
+  },
+  {
     id: 'anthropic',
     name: 'Anthropic',
     icon: '🤖',
