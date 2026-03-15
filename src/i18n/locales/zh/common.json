@@ -55,5 +55,20 @@
         "notRunning": "网关未运行",
         "notRunningDesc": "OpenClaw 网关需要运行才能使用此功能。它将自动启动，或者您可以从设置中启动。",
         "warning": "网关未运行。"
+    },
+    "userInfo": {
+        "title": "用户信息",
+        "description": "查看您的账户信息",
+        "id": "ID",
+        "phone": "手机号",
+        "createdAt": "注册时间",
+        "macAddress": "设备 MAC",
+        "logout": "退出登录",
+        "unbindDevice": "解绑设备",
+        "unbindConfirmTitle": "确认解绑",
+        "unbindConfirmMessage": "解绑设备后，您将需要重新登录此设备。确定要继续吗？",
+        "unbindSuccess": "设备解绑成功",
+        "unbindFailed": "解绑失败: {{message}}",
+        "notBound": "未绑定设备"
     }
 }

@@ -35,6 +35,7 @@ import { toast } from 'sonner';
 import { invokeIpc } from '@/lib/api-client';
 import { hostApiFetch } from '@/lib/host-api';
 import { subscribeHostEvent } from '@/lib/host-events';
+
 interface SetupStep {
   id: string;
   title: string;
@@ -130,6 +131,7 @@ function getProtocolBaseUrlPlaceholder(
 export function Setup() {
   const { t } = useTranslation(['setup', 'channels']);
   const navigate = useNavigate();
+
   const [currentStep, setCurrentStep] = useState<number>(STEP.WELCOME);
 
   // Setup state

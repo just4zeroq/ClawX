@@ -1,5 +1,9 @@
 {
     "steps": {
+        "login": {
+            "title": "ログイン",
+            "description": "ClawX アカウントにサインイン"
+        },
         "welcome": {
             "title": "ClawXへようこそ",
             "description": "AIアシスタントの設定準備が整いました"
@@ -23,6 +27,24 @@
         "complete": {
             "title": "完了！",
             "description": "ClawXを使用する準備が整いました"
+        }
+    },
+    "login": {
+        "title": "ログイン",
+        "description": "ClawX アカウントにサインイン",
+        "username": "ユーザー名",
+        "usernamePlaceholder": "ユーザー名を入力",
+        "password": "パスワード",
+        "passwordPlaceholder": "パスワードを入力",
+        "submit": "サインイン",
+        "loggingIn": "サインイン中...",
+        "success": "ログイン成功",
+        "errors": {
+            "invalid_credentials": "ユーザー名またはパスワードが無効です",
+            "device_bound": "このアカウントは別のデバイスにバインドされています。元のデバイスを使用するか、サポートにお問い合わせください。",
+            "network_error": "ネットワークエラー。接続を確認してください",
+            "server_error": "サーバーエラー。しばらくしてからもう一度お試しください",
+            "unknown": "ログインに失敗しました。しばらくしてからもう一度お試しください"
         }
     },
     "welcome": {

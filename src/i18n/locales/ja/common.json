@@ -55,5 +55,20 @@
         "notRunning": "ゲートウェイが停止中",
         "notRunningDesc": "この機能を使用するには OpenClaw ゲートウェイが実行されている必要があります。自動的に起動するか、設定から起動できます。",
         "warning": "ゲートウェイが停止中です。"
+    },
+    "userInfo": {
+        "title": "ユーザー情報",
+        "description": "アカウント情報を表示",
+        "id": "ID",
+        "phone": "電話番号",
+        "createdAt": "登録日時",
+        "macAddress": "デバイス MAC",
+        "logout": "ログアウト",
+        "unbindDevice": "デバイス解除",
+        "unbindConfirmTitle": "解除の確認",
+        "unbindConfirmMessage": "デバイスを解除すると、このデバイスで再度ログインする必要があります。続行しますか？",
+        "unbindSuccess": "デバイスを解除しました",
+        "unbindFailed": "解除に失敗しました: {{message}}",
+        "notBound": "デバイスがバインドされていません"
     }
 }

@@ -17,8 +17,10 @@ import { Skills } from './pages/Skills';
 import { Cron } from './pages/Cron';
 import { Settings } from './pages/Settings';
 import { Setup } from './pages/Setup';
+import { Login } from './pages/Login';
 import { useSettingsStore } from './stores/settings';
 import { useGatewayStore } from './stores/gateway';
+import { useAuthStore } from './stores/auth';
 import { applyGatewayTransportPreference } from './lib/api-client';
 
 
@@ -94,10 +96,16 @@ function App() {
   const language = useSettingsStore((state) => state.language);
   const setupComplete = useSettingsStore((state) => state.setupComplete);
   const initGateway = useGatewayStore((state) => state.init);
+  const syncAuthFromMain = useAuthStore((state) => state.syncFromMain);
 
   useEffect(() => {
     initSettings();
   }, [initSettings]);
+
+  // Sync auth state from main process on mount
+  useEffect(() => {
+    syncAuthFromMain();
+  }, [syncAuthFromMain]);
 
   // Sync i18n language with persisted settings on mount
   useEffect(() => {
@@ -117,6 +125,15 @@ function App() {
       navigate('/setup');
     }
   }, [setupComplete, location.pathname, navigate]);
+
+  // Redirect to login if setup complete but not logged in
+  const token = useAuthStore((state) => state.token);
+  const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
+  useEffect(() => {
+    if (setupComplete && !isLoggedIn() && location.pathname !== '/login') {
+      navigate('/login');
+    }
+  }, [setupComplete, token, isLoggedIn, location.pathname, navigate]);
 
   // Listen for navigation events from main process
   useEffect(() => {
@@ -161,6 +178,9 @@ function App() {
         <Routes>
           {/* Setup wizard (shown on first launch) */}
           <Route path="/setup/*" element={<Setup />} />
+
+          {/* Login page */}
+          <Route path="/login" element={<Login />} />
 
           {/* Main application routes */}
           <Route element={<MainLayout />}>

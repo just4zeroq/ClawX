@@ -128,6 +128,13 @@ const electronAPI = {
         'file:stageBuffer',
         'media:getThumbnails',
         'media:saveImage',
+        // Auth
+        'auth:login',
+        'auth:logout',
+        'auth:getState',
+        'auth:isLoggedIn',
+        'auth:getUser',
+        'auth:getToken',
         // Chat send with media (reads staged files in main process)
         'chat:sendWithMedia',
         // Session management

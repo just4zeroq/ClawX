@@ -14,10 +14,11 @@ import {
   PanelLeftClose,
   PanelLeft,
   Plus,
-  Terminal,
-  ExternalLink,
   Trash2,
   Cpu,
+  LogOut,
+  User,
+  Unlink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
@@ -27,8 +28,16 @@ import { useAgentsStore } from '@/stores/agents';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { hostApiFetch } from '@/lib/host-api';
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '@/stores/auth';
+import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import logoSvg from '@/assets/logo.svg';
 
 type SessionBucketKey =
@@ -127,6 +136,46 @@ export function Sidebar() {
   const gatewayStatus = useGatewayStore((s) => s.status);
   const isGatewayRunning = gatewayStatus.state === 'running';
 
+  // Auth state
+  const user = useAuthStore((s) => s.user);
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const logout = useAuthStore((s) => s.logout);
+  const unbindDevice = useAuthStore((s) => s.unbindDevice);
+  const syncFromMain = useAuthStore((s) => s.syncFromMain);
+  const [userDialogOpen, setUserDialogOpen] = useState(false);
+  const [unbindDialogOpen, setUnbindDialogOpen] = useState(false);
+  const [isUnbinding, setIsUnbinding] = useState(false);
+
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    setUserDialogOpen(false);
+    navigate('/login');
+  };
+
+  const handleUnbind = async () => {
+    setIsUnbinding(true);
+    try {
+      const result = await unbindDevice();
+      if (result.success) {
+        toast.success(t('common:userInfo.unbindSuccess'));
+        setUnbindDialogOpen(false);
+        setUserDialogOpen(false);
+        // Sync auth state to refresh user data
+        await syncFromMain();
+        // Navigate to login after unbinding
+        navigate('/login');
+      } else {
+        toast.error(t('common:userInfo.unbindFailed', { message: result.message }));
+      }
+    } catch {
+      toast.error(t('common:userInfo.unbindFailed', { message: 'Unknown error' }));
+    } finally {
+      setIsUnbinding(false);
+    }
+  };
+
   useEffect(() => {
     if (!isGatewayRunning) return;
     let cancelled = false;
@@ -143,28 +192,10 @@ export function Sidebar() {
   const agents = useAgentsStore((s) => s.agents);
   const fetchAgents = useAgentsStore((s) => s.fetchAgents);
 
-  const navigate = useNavigate();
   const isOnChat = useLocation().pathname === '/';
 
   const getSessionLabel = (key: string, displayName?: string, label?: string) =>
     sessionLabels[key] ?? label ?? displayName ?? key;
-
-  const openDevConsole = async () => {
-    try {
-      const result = await hostApiFetch<{
-        success: boolean;
-        url?: string;
-        error?: string;
-      }>('/api/gateway/control-ui');
-      if (result.success && result.url) {
-        window.electron.openExternal(result.url);
-      } else {
-        console.error('Failed to get Dev Console URL:', result.error);
-      }
-    } catch (err) {
-      console.error('Error opening Dev Console:', err);
-    }
-  };
 
   const { t } = useTranslation(['common', 'chat']);
   const [sessionToDelete, setSessionToDelete] = useState<{ key: string; label: string } | null>(null);
@@ -331,7 +362,7 @@ export function Sidebar() {
       )}
 
       {/* Footer */}
-      <div className="p-2 mt-auto">
+      <div className="p-2 mt-auto space-y-1">
         <NavLink
           to="/settings"
           className={({ isActive }) =>
@@ -353,26 +384,117 @@ export function Sidebar() {
           )}
         </NavLink>
 
-        {/* <Button
-          variant="ghost"
-          className={cn(
-            'flex items-center gap-2.5 rounded-lg px-2.5 py-2 h-auto text-[14px] font-medium transition-colors w-full mt-1',
-            'hover:bg-black/5 dark:hover:bg-white/5 text-foreground/80',
-            sidebarCollapsed ? 'justify-center px-0' : 'justify-start'
-          )}
-          onClick={openDevConsole}
-        >
-          <div className="flex shrink-0 items-center justify-center text-muted-foreground">
-            <Terminal className="h-[18px] w-[18px]" strokeWidth={2} />
-          </div>
-          {!sidebarCollapsed && (
-            <>
-              <span className="flex-1 text-left overflow-hidden text-ellipsis whitespace-nowrap">{t('common:sidebar.openClawPage')}</span>
-              <ExternalLink className="h-3 w-3 shrink-0 ml-auto opacity-50 text-muted-foreground" />
-            </>
-          )}
-        </Button> */}
+        {/* User Avatar */}
+        {isLoggedIn() && user && (
+          <button
+            onClick={() => setUserDialogOpen(true)}
+            className={cn(
+              'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] font-medium transition-colors w-full',
+              'hover:bg-black/5 dark:hover:bg-white/5 text-foreground/80',
+              sidebarCollapsed ? 'justify-center px-0' : 'justify-start'
+            )}
+          >
+            <div className="flex shrink-0 items-center justify-center">
+              {user.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={user.username}
+                  className="h-[18px] w-[18px] rounded-full object-cover"
+                />
+              ) : (
+                <div className="h-[18px] w-[18px] rounded-full bg-primary/10 flex items-center justify-center">
+                  <User className="h-3 w-3 text-primary" />
+                </div>
+              )}
+            </div>
+            {!sidebarCollapsed && (
+              <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left">
+                {user.username}
+              </span>
+            )}
+          </button>
+        )}
       </div>
+
+      {/* User Info Dialog */}
+      <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('common:userInfo.title')}</DialogTitle>
+            <DialogDescription>{t('common:userInfo.description')}</DialogDescription>
+          </DialogHeader>
+          {user && (
+            <div className="space-y-4 py-4">
+              <div className="flex items-center gap-4">
+                {user.avatar ? (
+                  <img
+                    src={user.avatar}
+                    alt={user.username}
+                    className="h-16 w-16 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                    <User className="h-8 w-8 text-primary" />
+                  </div>
+                )}
+                <div>
+                  <h3 className="font-semibold text-lg">{user.username}</h3>
+                  <p className="text-sm text-muted-foreground">{t('common:userInfo.id')}: {user.id}</p>
+                </div>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between py-2 border-b">
+                  <span className="text-muted-foreground">{t('common:userInfo.phone')}</span>
+                  <span>{user.phone}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                  <span className="text-muted-foreground">{t('common:userInfo.createdAt')}</span>
+                  <span>{new Date(user.created_at).toLocaleString()}</span>
+                </div>
+                {user.mac_address && (
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">{t('common:userInfo.macAddress')}</span>
+                    <span>{user.mac_address}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-4 border-t">
+            {user?.mac_address && (
+              <Button
+                variant="outline"
+                onClick={() => setUnbindDialogOpen(true)}
+                className="gap-2"
+              >
+                <Unlink className="h-4 w-4" />
+                {t('common:userInfo.unbindDevice')}
+              </Button>
+            )}
+            <Button
+              variant="destructive"
+              onClick={handleLogout}
+              className="gap-2"
+            >
+              <LogOut className="h-4 w-4" />
+              {t('common:userInfo.logout')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unbind Device Confirm Dialog */}
+      <ConfirmDialog
+        open={unbindDialogOpen}
+        title={t('common:userInfo.unbindConfirmTitle')}
+        message={t('common:userInfo.unbindConfirmMessage')}
+        confirmLabel={t('common:userInfo.unbindDevice')}
+        cancelLabel={t('common:actions.cancel')}
+        variant="destructive"
+        loading={isUnbinding}
+        onConfirm={handleUnbind}
+        onCancel={() => setUnbindDialogOpen(false)}
+      />
 
       <ConfirmDialog
         open={!!sessionToDelete}

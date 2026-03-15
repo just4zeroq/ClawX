@@ -55,5 +55,20 @@
         "notRunning": "Gateway Not Running",
         "notRunningDesc": "The OpenClaw Gateway needs to be running to use this feature. It will start automatically, or you can start it from Settings.",
         "warning": "Gateway is not running."
+    },
+    "userInfo": {
+        "title": "User Info",
+        "description": "View your account information",
+        "id": "ID",
+        "phone": "Phone",
+        "createdAt": "Created At",
+        "macAddress": "Device MAC",
+        "logout": "Logout",
+        "unbindDevice": "Unbind Device",
+        "unbindConfirmTitle": "Confirm Unbind",
+        "unbindConfirmMessage": "After unbinding, you will need to log in again on this device. Continue?",
+        "unbindSuccess": "Device unbound successfully",
+        "unbindFailed": "Unbind failed: {{message}}",
+        "notBound": "No device bound"
     }
 }

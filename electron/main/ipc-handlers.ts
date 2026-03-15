@@ -35,6 +35,15 @@ import { updateSkillConfig, getSkillConfig, getAllSkillConfigs } from '../utils/
 import { whatsAppLoginManager } from '../utils/whatsapp-login';
 import { getProviderConfig } from '../utils/provider-registry';
 import { deviceOAuthManager, OAuthProviderType } from '../utils/device-oauth';
+import {
+  login,
+  logout,
+  getAuthState,
+  isLoggedIn,
+  getCurrentUser,
+  getAccessToken,
+  unbindMacAddress,
+} from '../utils/auth';
 import { browserOAuthManager, type BrowserOAuthProviderType } from '../utils/browser-oauth';
 import { applyProxySettings } from './proxy';
 import { syncLaunchAtStartupSettingFromStore } from './launch-at-startup';
@@ -138,6 +147,9 @@ export function registerIpcHandlers(
 
   // Device OAuth handlers (Code Plan)
   registerDeviceOAuthHandlers(mainWindow);
+
+  // Auth handlers (login/logout)
+  registerAuthHandlers();
 
   // File staging handlers (upload/send separation)
   registerFileHandlers();
@@ -2668,6 +2680,66 @@ function registerSessionHandlers(): void {
     } catch (err) {
       logger.error(`[session:delete] Unexpected error for ${sessionKey}:`, err);
       return { success: false, error: String(err) };
+    }
+  });
+}
+
+/**
+ * Auth-related IPC handlers
+ * Handles login, logout, and auth state queries
+ */
+function registerAuthHandlers(): void {
+  // Login with username and password
+  ipcMain.handle('auth:login', async (_, username: string, password: string) => {
+    try {
+      const result = await login(username, password);
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        error: 'server_error',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  });
+
+  // Logout
+  ipcMain.handle('auth:logout', async () => {
+    await logout();
+    return { success: true };
+  });
+
+  // Get auth state
+  ipcMain.handle('auth:getState', async () => {
+    return await getAuthState();
+  });
+
+  // Check if logged in
+  ipcMain.handle('auth:isLoggedIn', async () => {
+    return await isLoggedIn();
+  });
+
+  // Get current user
+  ipcMain.handle('auth:getUser', async () => {
+    return getCurrentUser();
+  });
+
+  // Get access token
+  ipcMain.handle('auth:getToken', async () => {
+    return getAccessToken();
+  });
+
+  // Unbind MAC address
+  ipcMain.handle('auth:unbindDevice', async () => {
+    try {
+      const result = await unbindMacAddress();
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        error: 'server_error',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
   });
 }

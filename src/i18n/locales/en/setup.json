@@ -1,5 +1,9 @@
 {
     "steps": {
+        "login": {
+            "title": "Login",
+            "description": "Sign in to your XiWang account"
+        },
         "welcome": {
             "title": "Welcome to XiWang",
             "description": "Your AI assistant is ready to be configured"
@@ -23,6 +27,24 @@
         "complete": {
             "title": "All Set!",
             "description": "XiWang is ready to use"
+        }
+    },
+    "login": {
+        "title": "Login",
+        "description": "Sign in to your XiWang account",
+        "username": "Username",
+        "usernamePlaceholder": "Enter your username",
+        "password": "Password",
+        "passwordPlaceholder": "Enter your password",
+        "submit": "Sign In",
+        "loggingIn": "Signing in...",
+        "success": "Login successful",
+        "errors": {
+            "invalid_credentials": "Invalid username or password",
+            "device_bound": "This account is bound to another device. Please use the original device or contact support.",
+            "network_error": "Network error, please check your connection",
+            "server_error": "Server error, please try again later",
+            "unknown": "Login failed, please try again later"
         }
     },
     "welcome": {
