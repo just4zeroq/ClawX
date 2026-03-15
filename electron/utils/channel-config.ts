@@ -16,17 +16,41 @@ import { withConfigLock } from './config-mutex';
 const OPENCLAW_DIR = join(homedir(), '.openclaw');
 const CONFIG_FILE = join(OPENCLAW_DIR, 'openclaw.json');
 const WECOM_PLUGIN_ID = 'wecom-openclaw-plugin';
-const FEISHU_PLUGIN_ID = 'feishu-openclaw-plugin';
+const FEISHU_PLUGIN_ID = 'openclaw-lark';
+const LEGACY_FEISHU_PLUGIN_ID = 'feishu-openclaw-plugin';
 const DEFAULT_ACCOUNT_ID = 'default';
 const CHANNEL_TOP_LEVEL_KEYS_TO_KEEP = new Set(['accounts', 'defaultAccount', 'enabled']);
 
 // Channels that are managed as plugins (config goes under plugins.entries, not channels)
 const PLUGIN_CHANNELS = ['whatsapp'];
 
+// Unique credential key per channel type – used for duplicate bot detection.
+// Maps each channel type to the field that uniquely identifies a bot/account.
+// When two agents try to use the same value for this field, the save is rejected.
+const CHANNEL_UNIQUE_CREDENTIAL_KEY: Record<string, string> = {
+    feishu: 'appId',
+    wecom: 'botId',
+    dingtalk: 'clientId',
+    telegram: 'botToken',
+    discord: 'token',
+    qqbot: 'appId',
+    signal: 'phoneNumber',
+    imessage: 'serverUrl',
+    matrix: 'accessToken',
+    line: 'channelAccessToken',
+    msteams: 'appId',
+    googlechat: 'serviceAccountKey',
+    mattermost: 'botToken',
+};
+
 // ── Helpers ──────────────────────────────────────────────────────
 
 async function fileExists(p: string): Promise<boolean> {
     try { await access(p, constants.F_OK); return true; } catch { return false; }
+}
+
+function normalizeCredentialValue(value: string): string {
+    return value.trim();
 }
 
 // ── Types ────────────────────────────────────────────────────────
@@ -112,7 +136,10 @@ function ensurePluginAllowlist(currentConfig: OpenClawConfig, channelType: strin
             const allow: string[] = Array.isArray(currentConfig.plugins.allow)
                 ? (currentConfig.plugins.allow as string[])
                 : [];
-            const normalizedAllow = allow.filter((pluginId) => pluginId !== 'feishu');
+            // Remove legacy IDs: 'feishu' (built-in) and old 'feishu-openclaw-plugin'
+            const normalizedAllow = allow.filter(
+                (pluginId) => pluginId !== 'feishu' && pluginId !== LEGACY_FEISHU_PLUGIN_ID
+            );
             if (!normalizedAllow.includes(FEISHU_PLUGIN_ID)) {
                 currentConfig.plugins.allow = [...normalizedAllow, FEISHU_PLUGIN_ID];
             } else if (normalizedAllow.length !== allow.length) {
@@ -122,10 +149,9 @@ function ensurePluginAllowlist(currentConfig: OpenClawConfig, channelType: strin
             if (!currentConfig.plugins.entries) {
                 currentConfig.plugins.entries = {};
             }
-            // Remove legacy 'feishu' entry — the official plugin registers its
-            // channel AS 'feishu' via openclaw.plugin.json, so an explicit
-            // entries.feishu.enabled=false would block the official plugin's channel.
+            // Remove legacy entries that would conflict with the current plugin ID
             delete currentConfig.plugins.entries['feishu'];
+            delete currentConfig.plugins.entries[LEGACY_FEISHU_PLUGIN_ID];
 
             if (!currentConfig.plugins.entries[FEISHU_PLUGIN_ID]) {
                 currentConfig.plugins.entries[FEISHU_PLUGIN_ID] = {};
@@ -313,6 +339,51 @@ function migrateLegacyChannelConfigToAccounts(
     }
 }
 
+/**
+ * Throws if the unique credential (e.g. appId for Feishu) in `config` is
+ * already registered under a *different* account in the same channel section.
+ * This prevents two agents from silently sharing the same bot connection.
+ */
+function assertNoDuplicateCredential(
+    channelType: string,
+    config: ChannelConfigData,
+    channelSection: ChannelConfigData,
+    resolvedAccountId: string,
+): void {
+    const uniqueKey = CHANNEL_UNIQUE_CREDENTIAL_KEY[channelType];
+    if (!uniqueKey) return;
+
+    const incomingValue = config[uniqueKey];
+    if (typeof incomingValue !== 'string') return;
+    const normalizedIncomingValue = normalizeCredentialValue(incomingValue);
+    if (!normalizedIncomingValue) return;
+    if (normalizedIncomingValue !== incomingValue) {
+        logger.warn('Normalized channel credential value for duplicate check', {
+            channelType,
+            accountId: resolvedAccountId,
+            key: uniqueKey,
+        });
+    }
+
+    const accounts = channelSection.accounts as Record<string, ChannelConfigData> | undefined;
+    if (!accounts) return;
+
+    for (const [existingAccountId, accountCfg] of Object.entries(accounts)) {
+        if (existingAccountId === resolvedAccountId) continue;
+        if (!accountCfg || typeof accountCfg !== 'object') continue;
+        const existingValue = accountCfg[uniqueKey];
+        if (
+            typeof existingValue === 'string'
+            && normalizeCredentialValue(existingValue) === normalizedIncomingValue
+        ) {
+            throw new Error(
+                `The ${channelType} bot (${uniqueKey}: ${normalizedIncomingValue}) is already bound to another agent (account: ${existingAccountId}). ` +
+                `Each agent must use a unique bot.`,
+            );
+        }
+    }
+}
+
 export async function saveChannelConfig(
     channelType: string,
     config: ChannelConfigData,
@@ -355,8 +426,25 @@ export async function saveChannelConfig(
 
         const channelSection = currentConfig.channels[channelType];
         migrateLegacyChannelConfigToAccounts(channelSection, DEFAULT_ACCOUNT_ID);
+
+        // Guard: reject if this bot/app credential is already used by another account.
+        assertNoDuplicateCredential(channelType, config, channelSection, resolvedAccountId);
+
         const existingAccountConfig = resolveAccountConfig(channelSection, resolvedAccountId);
         const transformedConfig = transformChannelConfig(channelType, config, existingAccountConfig);
+        const uniqueKey = CHANNEL_UNIQUE_CREDENTIAL_KEY[channelType];
+        if (uniqueKey && typeof transformedConfig[uniqueKey] === 'string') {
+            const rawCredentialValue = transformedConfig[uniqueKey] as string;
+            const normalizedCredentialValue = normalizeCredentialValue(rawCredentialValue);
+            if (normalizedCredentialValue !== rawCredentialValue) {
+                logger.warn('Normalizing channel credential value before save', {
+                    channelType,
+                    accountId: resolvedAccountId,
+                    key: uniqueKey,
+                });
+                transformedConfig[uniqueKey] = normalizedCredentialValue;
+            }
+        }
 
         // Write credentials into accounts.<accountId>
         if (!channelSection.accounts || typeof channelSection.accounts !== 'object') {

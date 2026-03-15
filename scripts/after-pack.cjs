@@ -162,7 +162,7 @@ const MODULE_PATCHES = {
 };
 
 function patchBrokenModules(nodeModulesDir) {
-  const { writeFileSync } = require('fs');
+  const { writeFileSync, readFileSync } = require('fs');
   let count = 0;
   for (const [rel, content] of Object.entries(MODULE_PATCHES)) {
     const target = join(nodeModulesDir, rel);
@@ -171,6 +171,34 @@ function patchBrokenModules(nodeModulesDir) {
       count++;
     }
   }
+
+  // https-proxy-agent@8.x only defines exports.import (ESM) with no CJS
+  // fallback.  The openclaw Gateway loads it via require(), which triggers
+  // ERR_PACKAGE_PATH_NOT_EXPORTED.  Patch exports to add CJS conditions.
+  const hpaPkgPath = join(nodeModulesDir, 'https-proxy-agent', 'package.json');
+  if (existsSync(hpaPkgPath)) {
+    try {
+      const raw = readFileSync(hpaPkgPath, 'utf8');
+      const pkg = JSON.parse(raw);
+      const exp = pkg.exports;
+      // Only patch if exports exists and lacks a CJS 'require' condition
+      if (exp && exp.import && !exp.require && !exp['.']) {
+        pkg.exports = {
+          '.': {
+            import: exp.import,
+            require: exp.import, // ESM dist works for CJS too via Node.js interop
+            default: typeof exp.import === 'string' ? exp.import : exp.import.default,
+          },
+        };
+        writeFileSync(hpaPkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        count++;
+        console.log('[after-pack] 🩹 Patched https-proxy-agent exports for CJS compatibility');
+      }
+    } catch (err) {
+      console.warn('[after-pack] ⚠️  Failed to patch https-proxy-agent:', err.message);
+    }
+  }
+
   if (count > 0) {
     console.log(`[after-pack] 🩹 Patched ${count} broken module(s) in ${nodeModulesDir}`);
   }

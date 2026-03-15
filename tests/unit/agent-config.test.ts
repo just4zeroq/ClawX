@@ -163,7 +163,7 @@ describe('agent config lifecycle', () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     const { deleteAgentConfig } = await import('@electron/utils/agent-config');
 
-    const snapshot = await deleteAgentConfig('test2');
+    const { snapshot } = await deleteAgentConfig('test2');
 
     expect(snapshot.agents.map((agent) => agent.id)).toEqual(['main', 'test3']);
     expect(snapshot.channelOwners.feishu).toBe('main');
@@ -175,7 +175,9 @@ describe('agent config lifecycle', () => {
     ]);
     expect(config.bindings).toEqual([]);
     await expect(access(test2RuntimeDir)).rejects.toThrow();
-    await expect(access(test2WorkspaceDir)).rejects.toThrow();
+    // Workspace deletion is intentionally deferred by `deleteAgentConfig` to avoid
+    // ENOENT errors during Gateway restart, so it should still exist here.
+    await expect(access(test2WorkspaceDir)).resolves.toBeUndefined();
 
     infoSpy.mockRestore();
   });

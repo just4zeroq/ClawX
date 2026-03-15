@@ -165,6 +165,8 @@ pnpm dev
 3. **技能包** – 选择适用于常见场景的预配置技能
 4. **验证** – 在进入主界面前测试你的配置
 
+如果系统语言在支持列表中，向导会默认选中该语言；否则回退到英文。
+
 > Moonshot（Kimi）说明：ClawX 默认保持开启 Kimi 的 web search。  
 > 当配置 Moonshot 后，ClawX 也会将 OpenClaw 配置中的 Kimi web search 同步到中国区端点（`https://api.moonshot.cn/v1`）。
 
@@ -318,6 +320,9 @@ pnpm typecheck            # TypeScript 类型检查
 
 # 测试
 pnpm test                 # 运行单元测试
+pnpm run comms:replay     # 计算通信回放指标
+pnpm run comms:baseline   # 刷新通信基线快照
+pnpm run comms:compare    # 将回放指标与基线阈值对比
 
 # 构建与打包
 pnpm run build:vite       # 仅构建前端
@@ -327,6 +332,17 @@ pnpm package:mac          # 为 macOS 打包
 pnpm package:win          # 为 Windows 打包
 pnpm package:linux        # 为 Linux 打包
 ```
+
+### 通信回归检查
+
+当 PR 涉及通信链路（Gateway 事件、Chat 收发流程、Channel 投递、传输回退）时，建议执行：
+
+```bash
+pnpm run comms:replay
+pnpm run comms:compare
+```
+
+CI 中的 `comms-regression` 会校验必选场景与阈值。
 ### 技术栈
 
 | 层级 | 技术 |

@@ -3,7 +3,7 @@
  * Registers all IPC handlers for main-renderer communication
  */
 import { ipcMain, BrowserWindow, shell, dialog, app, nativeImage } from 'electron';
-import { existsSync, cpSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, cpSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, extname, basename } from 'node:path';
 import crypto from 'node:crypto';
@@ -19,6 +19,7 @@ import {
   saveProviderKeyToOpenClaw,
   removeProviderFromOpenClaw,
 } from '../utils/openclaw-auth';
+import { buildOpenClawControlUiUrl } from '../utils/openclaw-control-ui';
 import { logger } from '../utils/logger';
 import {
   saveChannelConfig,
@@ -1170,13 +1171,18 @@ function registerGatewayHandlers(
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
-      const response = await proxyAwareFetch(`http://127.0.0.1:${port}${path}`, {
-        method,
-        headers,
-        body,
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
+      const response = await (async () => {
+        try {
+          return await proxyAwareFetch(`http://127.0.0.1:${port}${path}`, {
+            method,
+            headers,
+            body,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+      })();
 
       const contentType = (response.headers.get('content-type') || '').toLowerCase();
       if (contentType.includes('application/json')) {
@@ -1295,8 +1301,7 @@ function registerGatewayHandlers(
       const status = gatewayManager.getStatus();
       const token = await getSetting('gatewayToken');
       const port = status.port || 18789;
-      // Pass token as query param - Control UI will store it in localStorage
-      const url = `http://127.0.0.1:${port}/?token=${encodeURIComponent(token)}`;
+      const url = buildOpenClawControlUiUrl(port, token);
       return { success: true, url, port, token };
     } catch (error) {
       return { success: false, error: String(error) };
@@ -1362,6 +1367,8 @@ function registerGatewayHandlers(
  * For checking package status and channel configuration
  */
 function registerOpenClawHandlers(gatewayManager: GatewayManager): void {
+  const forceRestartChannels = new Set(['dingtalk', 'wecom', 'feishu', 'whatsapp']);
+
   const scheduleGatewayChannelRestart = (reason: string): void => {
     if (gatewayManager.getStatus().state !== 'stopped') {
       logger.info(`Scheduling Gateway restart after ${reason}`);
@@ -1371,154 +1378,114 @@ function registerOpenClawHandlers(gatewayManager: GatewayManager): void {
     }
   };
 
-  async function ensureDingTalkPluginInstalled(): Promise<{ installed: boolean; warning?: string }> {
-    const targetDir = join(homedir(), '.openclaw', 'extensions', 'dingtalk');
-    const targetManifest = join(targetDir, 'openclaw.plugin.json');
+  const scheduleGatewayChannelSaveRefresh = (channelType: string, reason: string): void => {
+    if (gatewayManager.getStatus().state === 'stopped') {
+      logger.info(`Gateway is stopped; skip immediate refresh after ${reason}`);
+      return;
+    }
+    if (forceRestartChannels.has(channelType)) {
+      logger.info(`Scheduling Gateway restart after ${reason}`);
+      gatewayManager.debouncedRestart();
+      return;
+    }
+    logger.info(`Scheduling Gateway reload after ${reason}`);
+    gatewayManager.debouncedReload();
+  };
 
+  // ── Generic plugin installer with version-aware upgrades ─────────
+
+  function readPluginVersion(pkgJsonPath: string): string | null {
+    try {
+      const raw = readFileSync(pkgJsonPath, 'utf-8');
+      const parsed = JSON.parse(raw) as { version?: string };
+      return parsed.version ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  function ensurePluginInstalled(
+    pluginDirName: string,
+    candidateSources: string[],
+    pluginLabel: string,
+  ): { installed: boolean; warning?: string } {
+    const targetDir = join(homedir(), '.openclaw', 'extensions', pluginDirName);
+    const targetManifest = join(targetDir, 'openclaw.plugin.json');
+    const targetPkgJson = join(targetDir, 'package.json');
+
+    const sourceDir = candidateSources.find((dir) => existsSync(join(dir, 'openclaw.plugin.json')));
+
+    // If already installed, check whether an upgrade is available
     if (existsSync(targetManifest)) {
-      logger.info('DingTalk plugin already installed from local mirror');
-      return { installed: true };
+      if (!sourceDir) return { installed: true };
+      const installedVersion = readPluginVersion(targetPkgJson);
+      const sourceVersion = readPluginVersion(join(sourceDir, 'package.json'));
+      if (!sourceVersion || !installedVersion || sourceVersion === installedVersion) {
+        return { installed: true };
+      }
+      logger.info(`[plugin] Upgrading ${pluginLabel} plugin: ${installedVersion} → ${sourceVersion}`);
     }
 
-    const candidateSources = app.isPackaged
+    if (!sourceDir) {
+      logger.warn(`Bundled ${pluginLabel} plugin mirror not found in candidate paths`, { candidateSources });
+      return {
+        installed: false,
+        warning: `Bundled ${pluginLabel} plugin mirror not found. Checked: ${candidateSources.join(' | ')}`,
+      };
+    }
+
+    try {
+      mkdirSync(join(homedir(), '.openclaw', 'extensions'), { recursive: true });
+      rmSync(targetDir, { recursive: true, force: true });
+      cpSync(sourceDir, targetDir, { recursive: true, dereference: true });
+
+      if (!existsSync(join(targetDir, 'openclaw.plugin.json'))) {
+        return { installed: false, warning: `Failed to install ${pluginLabel} plugin mirror (manifest missing).` };
+      }
+
+      logger.info(`Installed ${pluginLabel} plugin from bundled mirror: ${sourceDir}`);
+      return { installed: true };
+    } catch (error) {
+      logger.warn(`Failed to install ${pluginLabel} plugin from bundled mirror:`, error);
+      return {
+        installed: false,
+        warning: `Failed to install bundled ${pluginLabel} plugin mirror`,
+      };
+    }
+  }
+
+  function buildCandidateSources(pluginDirName: string): string[] {
+    return app.isPackaged
       ? [
-        join(process.resourcesPath, 'openclaw-plugins', 'dingtalk'),
-        join(process.resourcesPath, 'app.asar.unpacked', 'build', 'openclaw-plugins', 'dingtalk'),
-        join(process.resourcesPath, 'app.asar.unpacked', 'openclaw-plugins', 'dingtalk')
+        join(process.resourcesPath, 'openclaw-plugins', pluginDirName),
+        join(process.resourcesPath, 'app.asar.unpacked', 'build', 'openclaw-plugins', pluginDirName),
+        join(process.resourcesPath, 'app.asar.unpacked', 'openclaw-plugins', pluginDirName),
       ]
       : [
-        join(app.getAppPath(), 'build', 'openclaw-plugins', 'dingtalk'),
-        join(process.cwd(), 'build', 'openclaw-plugins', 'dingtalk'),
-        join(__dirname, '../../build/openclaw-plugins/dingtalk'),
+        join(app.getAppPath(), 'build', 'openclaw-plugins', pluginDirName),
+        join(process.cwd(), 'build', 'openclaw-plugins', pluginDirName),
+        join(__dirname, '../../build/openclaw-plugins', pluginDirName),
       ];
-
-    const sourceDir = candidateSources.find((dir) => existsSync(join(dir, 'openclaw.plugin.json')));
-    if (!sourceDir) {
-      logger.warn('Bundled DingTalk plugin mirror not found in candidate paths', { candidateSources });
-      return {
-        installed: false,
-        warning: `Bundled DingTalk plugin mirror not found. Checked: ${candidateSources.join(' | ')}`,
-      };
-    }
-
-    try {
-      mkdirSync(join(homedir(), '.openclaw', 'extensions'), { recursive: true });
-      rmSync(targetDir, { recursive: true, force: true });
-      cpSync(sourceDir, targetDir, { recursive: true, dereference: true });
-
-      if (!existsSync(targetManifest)) {
-        return { installed: false, warning: 'Failed to install DingTalk plugin mirror (manifest missing).' };
-      }
-
-      logger.info(`Installed DingTalk plugin from bundled mirror: ${sourceDir}`);
-      return { installed: true };
-    } catch (error) {
-      logger.warn('Failed to install DingTalk plugin from bundled mirror:', error);
-      return {
-        installed: false,
-        warning: 'Failed to install bundled DingTalk plugin mirror',
-      };
-    }
   }
 
-  async function ensureWeComPluginInstalled(): Promise<{ installed: boolean; warning?: string }> {
-    const targetDir = join(homedir(), '.openclaw', 'extensions', 'wecom');
-    const targetManifest = join(targetDir, 'openclaw.plugin.json');
-
-    if (existsSync(targetManifest)) {
-      logger.info('WeCom plugin already installed from local mirror');
-      return { installed: true };
-    }
-
-    const candidateSources = app.isPackaged
-      ? [
-          join(process.resourcesPath, 'openclaw-plugins', 'wecom'),
-          join(process.resourcesPath, 'app.asar.unpacked', 'build', 'openclaw-plugins', 'wecom'),
-          join(process.resourcesPath, 'app.asar.unpacked', 'openclaw-plugins', 'wecom')
-        ]
-      : [
-          join(app.getAppPath(), 'build', 'openclaw-plugins', 'wecom'),
-          join(process.cwd(), 'build', 'openclaw-plugins', 'wecom'),
-          join(__dirname, '../../build/openclaw-plugins/wecom'),
-        ];
-
-    const sourceDir = candidateSources.find((dir) => existsSync(join(dir, 'openclaw.plugin.json')));
-    if (!sourceDir) {
-      logger.warn('Bundled WeCom plugin mirror not found in candidate paths', { candidateSources });
-      return {
-        installed: false,
-        warning: `Bundled WeCom plugin mirror not found. Checked: ${candidateSources.join(' | ')}`,
-      };
-    }
-
-    try {
-      mkdirSync(join(homedir(), '.openclaw', 'extensions'), { recursive: true });
-      rmSync(targetDir, { recursive: true, force: true });
-      cpSync(sourceDir, targetDir, { recursive: true, dereference: true });
-
-      if (!existsSync(targetManifest)) {
-        return { installed: false, warning: 'Failed to install WeCom plugin mirror (manifest missing).' };
-      }
-
-      logger.info(`Installed WeCom plugin from bundled mirror: ${sourceDir}`);
-      return { installed: true };
-    } catch (error) {
-      logger.warn('Failed to install WeCom plugin from bundled mirror:', error);
-      return {
-        installed: false,
-        warning: 'Failed to install bundled WeCom plugin mirror',
-      };
-    }
+  function ensureDingTalkPluginInstalled(): { installed: boolean; warning?: string } {
+    return ensurePluginInstalled('dingtalk', buildCandidateSources('dingtalk'), 'DingTalk');
   }
 
-  async function ensureQQBotPluginInstalled(): Promise<{ installed: boolean; warning?: string }> {
-    const targetDir = join(homedir(), '.openclaw', 'extensions', 'qqbot');
-    const targetManifest = join(targetDir, 'openclaw.plugin.json');
+  function ensureWeComPluginInstalled(): { installed: boolean; warning?: string } {
+    return ensurePluginInstalled('wecom', buildCandidateSources('wecom'), 'WeCom');
+  }
 
-    if (existsSync(targetManifest)) {
-      logger.info('QQ Bot plugin already installed from local mirror');
-      return { installed: true };
-    }
+  function ensureFeishuPluginInstalled(): { installed: boolean; warning?: string } {
+    return ensurePluginInstalled(
+      'feishu-openclaw-plugin',
+      buildCandidateSources('feishu-openclaw-plugin'),
+      'Feishu',
+    );
+  }
 
-    const candidateSources = app.isPackaged
-      ? [
-          join(process.resourcesPath, 'openclaw-plugins', 'qqbot'),
-          join(process.resourcesPath, 'app.asar.unpacked', 'build', 'openclaw-plugins', 'qqbot'),
-          join(process.resourcesPath, 'app.asar.unpacked', 'openclaw-plugins', 'qqbot')
-        ]
-      : [
-          join(app.getAppPath(), 'build', 'openclaw-plugins', 'qqbot'),
-          join(process.cwd(), 'build', 'openclaw-plugins', 'qqbot'),
-          join(__dirname, '../../build/openclaw-plugins/qqbot'),
-        ];
-
-    const sourceDir = candidateSources.find((dir) => existsSync(join(dir, 'openclaw.plugin.json')));
-    if (!sourceDir) {
-      logger.warn('Bundled QQ Bot plugin mirror not found in candidate paths', { candidateSources });
-      return {
-        installed: false,
-        warning: `Bundled QQ Bot plugin mirror not found. Checked: ${candidateSources.join(' | ')}`,
-      };
-    }
-
-    try {
-      mkdirSync(join(homedir(), '.openclaw', 'extensions'), { recursive: true });
-      rmSync(targetDir, { recursive: true, force: true });
-      cpSync(sourceDir, targetDir, { recursive: true, dereference: true });
-
-      if (!existsSync(targetManifest)) {
-        return { installed: false, warning: 'Failed to install QQ Bot plugin mirror (manifest missing).' };
-      }
-
-      logger.info(`Installed QQ Bot plugin from bundled mirror: ${sourceDir}`);
-      return { installed: true };
-    } catch (error) {
-      logger.warn('Failed to install QQ Bot plugin from bundled mirror:', error);
-      return {
-        installed: false,
-        warning: 'Failed to install bundled QQ Bot plugin mirror',
-      };
-    }
+  function ensureQQBotPluginInstalled(): { installed: boolean; warning?: string } {
+    return ensurePluginInstalled('qqbot', buildCandidateSources('qqbot'), 'QQ Bot');
   }
 
   // Get OpenClaw package status
@@ -1583,7 +1550,7 @@ function registerOpenClawHandlers(gatewayManager: GatewayManager): void {
           };
         }
         await saveChannelConfig(channelType, config);
-        scheduleGatewayChannelRestart(`channel:saveConfig (${channelType})`);
+        scheduleGatewayChannelSaveRefresh(channelType, `channel:saveConfig (${channelType})`);
         return {
           success: true,
           pluginInstalled: installResult.installed,
@@ -1599,7 +1566,7 @@ function registerOpenClawHandlers(gatewayManager: GatewayManager): void {
           };
         }
         await saveChannelConfig(channelType, config);
-        scheduleGatewayChannelRestart(`channel:saveConfig (${channelType})`);
+        scheduleGatewayChannelSaveRefresh(channelType, `channel:saveConfig (${channelType})`);
         return {
           success: true,
           pluginInstalled: installResult.installed,
@@ -1615,12 +1582,23 @@ function registerOpenClawHandlers(gatewayManager: GatewayManager): void {
           };
         }
         await saveChannelConfig(channelType, config);
-        if (gatewayManager.getStatus().state !== 'stopped') {
-          logger.info(`Scheduling Gateway reload after channel:saveConfig (${channelType})`);
-          gatewayManager.debouncedReload();
-        } else {
-          logger.info(`Gateway is stopped; skip immediate reload after channel:saveConfig (${channelType})`);
+        scheduleGatewayChannelSaveRefresh(channelType, `channel:saveConfig (${channelType})`);
+        return {
+          success: true,
+          pluginInstalled: installResult.installed,
+          warning: installResult.warning,
+        };
+      }
+      if (channelType === 'feishu') {
+        const installResult = await ensureFeishuPluginInstalled();
+        if (!installResult.installed) {
+          return {
+            success: false,
+            error: installResult.warning || 'Feishu plugin install failed',
+          };
         }
+        await saveChannelConfig(channelType, config);
+        scheduleGatewayChannelSaveRefresh(channelType, `channel:saveConfig (${channelType})`);
         return {
           success: true,
           pluginInstalled: installResult.installed,
@@ -1628,7 +1606,7 @@ function registerOpenClawHandlers(gatewayManager: GatewayManager): void {
         };
       }
       await saveChannelConfig(channelType, config);
-      scheduleGatewayChannelRestart(`channel:saveConfig (${channelType})`);
+      scheduleGatewayChannelSaveRefresh(channelType, `channel:saveConfig (${channelType})`);
       return { success: true };
     } catch (error) {
       console.error('Failed to save channel config:', error);
@@ -1827,10 +1805,8 @@ function registerProviderHandlers(gatewayManager: GatewayManager): void {
   };
 
   // Listen for OAuth success to automatically restart the Gateway with new tokens/configs.
-  // Use a longer debounce (8s) so that provider:setDefault — which writes the full config
-  // and then calls debouncedRestart(2s) — has time to fire and coalesce into a single
-  // restart.  Without this, the OAuth restart fires first with stale config, and the
-  // subsequent provider:setDefault restart is deferred and dropped.
+  // Keep a longer debounce (8s) so provider config writes and OAuth token persistence
+  // can settle before applying the process-level refresh.
   deviceOAuthManager.on('oauth:success', ({ provider, accountId }) => {
     logger.info(`[IPC] Scheduling Gateway restart after ${provider} OAuth success for ${accountId}...`);
     gatewayManager.debouncedRestart(8000);
